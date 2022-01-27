@@ -3,9 +3,12 @@ package celeritas
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
 )
 
@@ -18,10 +21,11 @@ type Celeritas struct {
 	ErrorLog *log.Logger
 	InfoLog  *log.Logger
 	RootPath string
-	config config
+	Routes   *chi.Mux
+	config   config
 }
 type config struct {
-	port string
+	port     string
 	renderer string
 }
 
@@ -44,15 +48,16 @@ func (c *Celeritas) New(rootPath string) error {
 		return err
 	}
 
-	// create loggers 
+	// create loggers
 	infoLog, errorLog := c.startLoggers()
 	c.InfoLog = infoLog
 	c.ErrorLog = errorLog
-	c.Debug,_ = strconv.ParseBool(os.Getenv("DEBUG"))
+	c.Debug, _ = strconv.ParseBool(os.Getenv("DEBUG"))
 	c.Version = version
 	c.RootPath = rootPath
-	c.config = config {
-		port: os.Getenv("PORT"),
+	c.Routes = c.routes().(*chi.Mux)
+	c.config = config{
+		port:     os.Getenv("PORT"),
 		renderer: os.Getenv("RENDERER"),
 	}
 	return nil
@@ -71,6 +76,21 @@ func (c *Celeritas) Init(p initPaths) error {
 	return nil
 }
 
+func (c *Celeritas) ListenAndServe() {
+	srv := &http.Server{
+		Addr:         fmt.Sprintf(":%s", os.Getenv("PORT")),
+		ErrorLog:     c.ErrorLog,
+		Handler:      c.routes(),
+		IdleTimeout:  30 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 600 * time.Second,
+	}
+
+	c.InfoLog.Printf("Listening on port %s", os.Getenv("PORT"))
+	err := srv.ListenAndServe()
+	c.ErrorLog.Fatal(err)
+}
+
 func (c *Celeritas) checkDotEnv(path string) error {
 	err := c.CreateFileIfNotExist(fmt.Sprintf("%s/.env", path))
 	if err != nil {
@@ -81,13 +101,12 @@ func (c *Celeritas) checkDotEnv(path string) error {
 	return nil
 }
 
-
-func (c *Celeritas) startLoggers() (*log.Logger, *log.Logger){
+func (c *Celeritas) startLoggers() (*log.Logger, *log.Logger) {
 	var infoLog *log.Logger
 	var errorLog *log.Logger
 
-	infoLog = log.New(os.Stdout, "INFO\t",log.Ldate | log.Ltime)
-	errorLog = log.New(os.Stdout, "ERROR\t",log.Ldate | log.Ltime | log.Lshortfile)
+	infoLog = log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
+	errorLog = log.New(os.Stdout, "ERROR\t", log.Ldate|log.Ltime|log.Lshortfile)
 
 	return infoLog, errorLog
 }
